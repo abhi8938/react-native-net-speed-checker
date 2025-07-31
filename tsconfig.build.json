@@ -1,4 +1,25 @@
 {
-  "extends": "./tsconfig",
-  "exclude": ["example", "lib"]
+  "compilerOptions": {
+    /* Base Options */
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "target": "esnext",
+    "allowJs": true,
+
+    /* Strictness */
+    "strict": true,
+
+    /* If your code has imports from "react-native" */
+    "jsx": "react-native",
+
+    /* Module Resolution */
+    "moduleResolution": "node",
+
+    /* This is the most important part */
+    "declaration": true,
+    "declarationDir": "lib/typescript",
+    "emitDeclarationOnly": true
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "lib", "example"]
 }

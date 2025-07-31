@@ -4,8 +4,9 @@
   "description": "Network Speed monitor react native.",
   "react-native": "src/index.tsx",
   "source": "src/index.tsx",
-  "main": "./lib/module/index.js",
-  "types": "./lib/typescript/src/index.d.ts",
+  "main": "lib/commonjs/index.js",
+  "module": "lib/module/index.js",
+  "types": "lib/typescript/index.d.ts",
   "exports": {
     ".": {
       "source": "./src/index.tsx",
@@ -81,7 +82,7 @@
     "prettier": "^3.0.3",
     "react": "19.0.0",
     "react-native": "0.79.2",
-    "react-native-builder-bob": "^0.40.8",
+    "react-native-builder-bob": "0.23.1",
     "release-it": "^17.10.0",
     "turbo": "^1.10.7",
     "typescript": "^5.8.3"
@@ -135,18 +136,14 @@
   "react-native-builder-bob": {
     "source": "src",
     "output": "lib",
-    "targets": [
+   "targets": [
+     "commonjs",
+     "module",
       [
-        "module",
-        {
-          "esm": true
-        }
-      ],
-      [
-        "typescript",
-        {
-          "project": "tsconfig.build.json"
-        }
+       "typescript",
+       {
+        "project": "tsconfig.build.json"
+       }
       ]
     ]
   },
