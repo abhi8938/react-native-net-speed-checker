@@ -1,33 +1,28 @@
+// react-native-net-speed-checker/android/src/main/java/com/netspeedchecker/NetSpeedCheckerPackage.kt
+
 package com.netspeedchecker
 
-import com.facebook.react.BaseReactPackage
+// Import the correct, classic interfaces
+import com.facebook.react.ReactPackage
 import com.facebook.react.bridge.NativeModule
 import com.facebook.react.bridge.ReactApplicationContext
-import com.facebook.react.module.model.ReactModuleInfo
-import com.facebook.react.module.model.ReactModuleInfoProvider
-import java.util.HashMap
+import com.facebook.react.uimanager.ViewManager
+import java.util.ArrayList
 
-class NetSpeedCheckerPackage : BaseReactPackage() {
-  override fun getModule(name: String, reactContext: ReactApplicationContext): NativeModule? {
-    return if (name == NetSpeedCheckerModule.NAME) {
-      NetSpeedCheckerModule(reactContext)
-    } else {
-      null
+// Implement the standard ReactPackage interface instead of BaseReactPackage
+class NetSpeedCheckerPackage : ReactPackage {
+    
+    // This method is required by the ReactPackage interface
+    override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> {
+        val modules: MutableList<NativeModule> = ArrayList()
+        // Add your module to the list
+        modules.add(NetSpeedCheckerModule(reactContext))
+        return modules
     }
-  }
 
-  override fun getReactModuleInfoProvider(): ReactModuleInfoProvider {
-    return ReactModuleInfoProvider {
-      val moduleInfos: MutableMap<String, ReactModuleInfo> = HashMap()
-      moduleInfos[NetSpeedCheckerModule.NAME] = ReactModuleInfo(
-        NetSpeedCheckerModule.NAME,
-        NetSpeedCheckerModule.NAME,
-        false,  // canOverrideExistingModule
-        false,  // needsEagerInit
-        false,  // isCxxModule
-        true // isTurboModule
-      )
-      moduleInfos
+    // This method is also required, but we can return an empty list
+    // because your library doesn't have any UI components (ViewManagers).
+    override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> {
+        return emptyList()
     }
-  }
 }

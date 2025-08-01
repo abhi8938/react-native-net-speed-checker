@@ -20,9 +20,12 @@ RCT_EXPORT_METHOD(checkInternetSpeed:(NSString *)testFileUrl
         return;
     }
 
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+    request.timeoutInterval = 5.0;
+
     CFAbsoluteTime startTime = CFAbsoluteTimeGetCurrent();
 
-    [[[NSURLSession sharedSession] dataTaskWithURL:url completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
+    [[[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
         if (error) {
             reject(@"SPEED_CHECK_FAILED", @"Network request failed", error);
             return;

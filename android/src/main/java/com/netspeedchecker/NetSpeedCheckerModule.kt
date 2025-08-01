@@ -8,6 +8,8 @@ import com.facebook.react.bridge.Promise // Import Promise
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.IOException
+// Import TimeUnit
+import java.util.concurrent.TimeUnit
 
 @ReactModule(name = NetSpeedCheckerModule.NAME)
 class NetSpeedCheckerModule(reactContext: ReactApplicationContext) :
@@ -17,10 +19,13 @@ class NetSpeedCheckerModule(reactContext: ReactApplicationContext) :
     return NAME
   }
 
-  private val client = OkHttpClient()
 
-  // Delete the 'multiply' method and add this one.
-  // The signature MUST match the Spec (string, number -> Double, Promise)
+private val client = OkHttpClient.Builder()
+    .callTimeout(7, TimeUnit.SECONDS) // Total timeout for the entire call
+    .connectTimeout(5, TimeUnit.SECONDS) // Timeout for establishing a connection
+    .build()
+
+ 
   override fun checkInternetSpeed(testFileUrl: String, testFileSizeInBytes: Double, promise: Promise) {
       val request = Request.Builder()
           .url("$testFileUrl?d=${System.currentTimeMillis()}") // Cache buster
