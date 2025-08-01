@@ -1,14 +1,15 @@
 // ios/NetSpeedChecker.h
 
-#import <React/RCTBridgeModule.h> // Import this for promise types
+#ifdef RCT_NEW_ARCH_ENABLED
+// This code will only be used when the New Architecture is enabled
 #import <NetSpeedCheckerSpec/NetSpeedCheckerSpec.h>
 
 @interface NetSpeedChecker : NSObject <NativeNetSpeedCheckerSpec>
+#else
+// This code will be used for all legacy (Old Architecture) projects
+#import <React/RCTBridgeModule.h>
 
-// Add this method declaration. It must exactly match the implementation.
-- (void)checkInternetSpeed:(NSString *)testFileUrl
-       testFileSizeInBytes:(double)testFileSizeInBytes
-                  resolver:(RCTPromiseResolveBlock)resolve
-                  rejecter:(RCTPromiseRejectBlock)reject;
+@interface NetSpeedChecker : NSObject <RCTBridgeModule>
+#endif
 
 @end

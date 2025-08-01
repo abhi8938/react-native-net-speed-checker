@@ -3,7 +3,7 @@
 #import "NetSpeedChecker.h"
 
 @implementation NetSpeedChecker
-
+RCT_EXPORT_MODULE()
 // This is the key change. We use RCT_EXPORT_METHOD to explicitly register
 // the method with the old bridge, making it foolproof.
 RCT_EXPORT_METHOD(checkInternetSpeed:(NSString *)testFileUrl
@@ -48,16 +48,14 @@ RCT_EXPORT_METHOD(checkInternetSpeed:(NSString *)testFileUrl
     }] resume];
 }
 
-// We still need RCT_EXPORT_MODULE() for the old architecture to even
-// see the module in the first place.
-RCT_EXPORT_MODULE()
 
-// The getTurboModule function is for the New Architecture. We leave it
-// here so the library remains forward-compatible.
+#if RCT_NEW_ARCH_ENABLED
+// Only compile this boilerplate for New Architecture projects
 - (std::shared_ptr<facebook::react::TurboModule>)getTurboModule:
     (const facebook::react::ObjCTurboModule::InitParams &)params
 {
     return std::make_shared<facebook::react::NativeNetSpeedCheckerSpecJSI>(params);
 }
+#endif
 
 @end
