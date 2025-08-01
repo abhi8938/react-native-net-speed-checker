@@ -1,6 +1,6 @@
 {
   "name": "react-native-net-speed-checker",
-  "version": "0.1.0",
+  "version": "0.1.4",
   "description": "Network Speed monitor react native.",
   "react-native": "src/index.tsx",
   "source": "src/index.tsx",
