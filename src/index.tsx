@@ -1,99 +1,142 @@
-// src/index.tsx (Corrected Version)
+// src/index.tsx (New useNetworkDiagnostic Hook)
 
 import { useState, useEffect, useRef } from 'react';
-import { AppState } from 'react-native';
 import NetSpeedChecker from './NativeNetSpeedChecker';
 
 // --- Configuration ---
-const TEST_FILE_URL = 'https://i.imgur.com/v15aE6I.jpeg'; // ~60KB image
+const TEST_FILE_URL = 'https://i.imgur.com/v15aE6I.jpeg';
 const TEST_FILE_SIZE_BYTES = 60 * 1024;
-const CHECK_INTERVAL_MS = 2500; // Check every 2.5 seconds
 
-interface SpeedCheckOptions {
-  onLowSpeed: () => void;
-  thresholdKbps?: number;
-  durationSeconds?: number;
+export type DiagnosticStatus =
+  | 'idle' // Not running
+  | 'checking_initial' // Step 1: Initial check running
+  | 'initial_failed' // Step 1: Result
+  | 'initial_passed' // Step 2: Result
+  | 'checking_speed' // Step 3: 7s speed check running
+  | 'speed_slow' // Step 3: Result
+  | 'speed_fast' // Step 3: Result
+  | 'finalizing' // Step 4: Final check running
+  | 'timeout' // Step 4: Result
+  | 'success'; // Step 4: Result
+
+interface DiagnosticOptions {
+  isRunning: boolean; // Controls the process
+  onComplete?: () => void; // Callback when the process finishes
+  speedThresholdKbps?: number;
 }
 
-export const useInternetSpeedCheck = ({
-  onLowSpeed,
-  thresholdKbps = 25,
-  durationSeconds = 10,
-}: SpeedCheckOptions) => {
+export const useNetworkDiagnostic = ({
+  isRunning,
+  onComplete,
+  speedThresholdKbps = 400,
+}: DiagnosticOptions) => {
+  const [status, setStatus] = useState<DiagnosticStatus>('idle');
   const [currentSpeedKbps, setCurrentSpeedKbps] = useState(0);
-  const [lowSpeedStreak, setLowSpeedStreak] = useState(0);
 
-  const onLowSpeedRef = useRef(onLowSpeed);
+  // Refs to hold timers so we can clear them on termination
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const cleanupTimers = () => {
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    intervalRef.current = null;
+    timeoutRef.current = null;
+  };
+
   useEffect(() => {
-    onLowSpeedRef.current = onLowSpeed;
-  }, [onLowSpeed]);
-
-  useEffect(() => {
-    let intervalId: NodeJS.Timeout | null = null;
-
-    const checkSpeed = async () => {
-      let speedKbps = 0; // Default to 0 (low speed)
-      try {
-        console.log('[NetSpeedChecker] - Running speed check...');
-        speedKbps = await NetSpeedChecker.checkInternetSpeed(
-          TEST_FILE_URL,
-          TEST_FILE_SIZE_BYTES
-        );
-      } catch (error) {
-        console.error('[NetSpeedChecker] - Speed check failed:', error);
-        // On error, we keep speedKbps at 0, treating it as a low-speed event.
-      }
-
-      setCurrentSpeedKbps(Math.round(speedKbps));
-
-      // --- UNIFIED LOGIC BLOCK ---
-      if (speedKbps < thresholdKbps) {
-        // This block now handles both successful low-speed checks AND errors.
-        setLowSpeedStreak((prevStreak) => {
-          const newStreak = prevStreak + CHECK_INTERVAL_MS / 1000;
-          console.log(
-            `[NetSpeedChecker] - Low speed detected. Current streak: ${newStreak}s`
-          );
-
-          if (newStreak >= durationSeconds) {
-            console.log(
-              '[NetSpeedChecker] - Low speed duration threshold met. Firing callback!'
-            );
-            onLowSpeedRef.current?.();
-            return 0; // Reset after firing
-          }
-          return newStreak;
-        });
-      } else {
-        // Speed is good, reset the streak
-        console.log(
-          `[NetSpeedChecker] - Speed is good (${Math.round(speedKbps)} kbps). Resetting streak.`
-        );
-        setLowSpeedStreak(0);
-      }
-    };
-
-    const handleAppStateChange = (nextAppState: string) => {
-      // ... (no changes needed here)
-    };
-
-    // ... (no changes needed in the rest of the useEffect)
-    const subscription = AppState.addEventListener(
-      'change',
-      handleAppStateChange
-    );
-    if (AppState.currentState === 'active') {
-      checkSpeed(); // Initial check
-      intervalId = setInterval(checkSpeed, CHECK_INTERVAL_MS);
+    // --- Step 5 & 6: Control Logic ---
+    if (!isRunning) {
+      cleanupTimers();
+      setStatus('idle');
+      setCurrentSpeedKbps(0);
+      return;
     }
 
-    return () => {
-      subscription.remove();
-      if (intervalId) {
-        clearInterval(intervalId);
-      }
-    };
-  }, [thresholdKbps, durationSeconds]);
+    // Start the process if it's idle and isRunning becomes true
+    if (status === 'idle' && isRunning) {
+      setStatus('checking_initial');
+    }
 
-  return { currentSpeedKbps, lowSpeedStreak };
+    // --- State Machine ---
+
+    // Step 1 & 2: Initial Connection Check
+    if (status === 'checking_initial') {
+      (async () => {
+        try {
+          await NetSpeedChecker.checkInternetSpeed(
+            TEST_FILE_URL,
+            TEST_FILE_SIZE_BYTES
+          );
+          setStatus('initial_passed');
+        } catch (error) {
+          console.error('[Diagnostic] Initial check failed:', error);
+          setStatus('initial_failed');
+        }
+      })();
+    }
+
+    // Step 3: 7-Second Speed Check Window
+    if (status === 'initial_passed') {
+      setStatus('checking_speed');
+      let isSlowDetected = false;
+
+      // Start an interval to check speed
+      intervalRef.current = setInterval(async () => {
+        try {
+          const speed = await NetSpeedChecker.checkInternetSpeed(
+            TEST_FILE_URL,
+            TEST_FILE_SIZE_BYTES
+          );
+          setCurrentSpeedKbps(Math.round(speed));
+          if (speed <= speedThresholdKbps) {
+            isSlowDetected = true;
+          }
+        } catch (e) {
+          isSlowDetected = true; // Treat errors as slow speed
+        }
+      }, 2000); // Check every 2 seconds
+
+      // Set a timeout for 7 seconds to end this phase
+      timeoutRef.current = setTimeout(() => {
+        cleanupTimers(); // Stop the interval
+        if (isSlowDetected) {
+          setStatus('speed_slow');
+        } else {
+          setStatus('speed_fast');
+        }
+      }, 7000);
+    }
+
+    // Step 4: Final Check (after speed check is done)
+    if (status === 'speed_slow' || status === 'speed_fast') {
+      setStatus('finalizing');
+      (async () => {
+        try {
+          await NetSpeedChecker.checkInternetSpeed(
+            TEST_FILE_URL,
+            TEST_FILE_SIZE_BYTES
+          );
+          setStatus('success');
+        } catch (error) {
+          console.error('[Diagnostic] Final check failed (timeout):', error);
+          setStatus('timeout');
+        }
+      })();
+    }
+
+    // Process has finished, call onComplete callback
+    if (
+      status === 'success' ||
+      status === 'timeout' ||
+      status === 'initial_failed'
+    ) {
+      onComplete?.();
+    }
+
+    // Cleanup function to stop timers if the hook unmounts or isRunning becomes false
+    return cleanupTimers;
+  }, [isRunning, status, speedThresholdKbps, onComplete]);
+
+  return { status, currentSpeedKbps };
 };
