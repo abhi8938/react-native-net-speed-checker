@@ -21,8 +21,8 @@ class NetSpeedCheckerModule(reactContext: ReactApplicationContext) :
 
 
 private val client = OkHttpClient.Builder()
-    .callTimeout(7, TimeUnit.SECONDS) // Total timeout for the entire call
-    .connectTimeout(5, TimeUnit.SECONDS) // Timeout for establishing a connection
+    .callTimeout(5, TimeUnit.SECONDS) // Total timeout for the entire call
+    .connectTimeout(1, TimeUnit.SECONDS) // Timeout for establishing a connection
     .build()
 
  
