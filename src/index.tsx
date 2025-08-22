@@ -24,10 +24,10 @@ interface DiagnosticOptions {
   onComplete?: (finalStatus: DiagnosticStatus) => void;
   speedThresholdKbps?: number;
 }
-// How many times to check speed during the window.
-const SPEED_CHECK_COUNT_LIMIT = 3;
-// How often to check.
-const SPEED_CHECK_INTERVAL_MS = 2000;
+
+const TOTAL_CHECK_LIMIT = 3; // Exit condition for "fast" speed
+const SLOW_CHECK_THRESHOLD = 2; // Exit condition for "slow" speed
+const SPEED_CHECK_INTERVAL_MS = 2500;
 
 export const useNetworkDiagnostic = ({
   isRunning,
@@ -38,8 +38,9 @@ export const useNetworkDiagnostic = ({
   const [currentSpeedKbps, setCurrentSpeedKbps] = useState(0);
 
   // --- REFS FOR PERSISTENCE ---
-  const isSlowDetectedRef = useRef(false);
-  const checkCountRef = useRef(0); // <-- NEW: Counter for checks
+  const totalChecksRef = useRef(0);
+  const slowChecksRef = useRef(0);
+  const isTransitioningRef = useRef(false); // Our strict gatekeeper
   const onCompleteRef = useRef(onComplete);
   const optionsRef = useRef({ speedThresholdKbps });
 
@@ -58,8 +59,9 @@ export const useNetworkDiagnostic = ({
 
     if (status === 'idle' && isRunning) {
       console.log('[Diagnostic] Process started. Moving to checking_initial.');
-      isSlowDetectedRef.current = false;
-      checkCountRef.current = 0; // <-- Reset counter at the start
+      totalChecksRef.current = 0;
+      slowChecksRef.current = 0;
+      isTransitioningRef.current = false; // Reset the gatekeeper
       setCurrentSpeedKbps(0);
       setStatus('checking_initial');
       return;
@@ -68,14 +70,8 @@ export const useNetworkDiagnostic = ({
     if (status === 'checking_initial') {
       console.log('[Diagnostic] Step 1: Executing initial connection check.');
       NetSpeedChecker.checkInternetSpeed(TEST_FILE_URL, TEST_FILE_SIZE_BYTES)
-        .then(() => {
-          console.log('[Diagnostic] Step 2: Initial check passed.');
-          setStatus('initial_passed');
-        })
-        .catch((error) => {
-          console.error('[Diagnostic] Step 1: Initial check failed!', error);
-          setStatus('initial_failed');
-        });
+        .then(() => setStatus('initial_passed'))
+        .catch(() => setStatus('initial_failed'));
     } else if (status === 'initial_passed') {
       console.log(
         '[Diagnostic] Step 3: Starting speed check window. Setting status to checking_speed.'
@@ -87,10 +83,16 @@ export const useNetworkDiagnostic = ({
       );
 
       intervalId = setInterval(() => {
-        // Increment the counter first
-        checkCountRef.current += 1;
+        const currentCheckNumber = totalChecksRef.current + 1;
+        if (
+          currentCheckNumber > TOTAL_CHECK_LIMIT ||
+          isTransitioningRef.current
+        ) {
+          return; // Don't fire new checks if we are done or transitioning
+        }
+
         console.log(
-          `[Diagnostic] - Running speed check #${checkCountRef.current} of ${SPEED_CHECK_COUNT_LIMIT}...`
+          `[Diagnostic] - Firing speed check #${currentCheckNumber} of ${TOTAL_CHECK_LIMIT}...`
         );
 
         NetSpeedChecker.checkInternetSpeed(TEST_FILE_URL, TEST_FILE_SIZE_BYTES)
@@ -98,29 +100,41 @@ export const useNetworkDiagnostic = ({
             const roundedSpeed = Math.round(speed);
             setCurrentSpeedKbps(roundedSpeed);
             if (speed <= optionsRef.current.speedThresholdKbps) {
+              slowChecksRef.current += 1;
               console.log(
-                `[Diagnostic] - SLOW SPEED DETECTED (${roundedSpeed} kbps). Flagging as slow.`
+                `[Diagnostic] - SLOW SPEED DETECTED (${roundedSpeed} kbps). Slow count: ${slowChecksRef.current}`
               );
-              isSlowDetectedRef.current = true;
             }
           })
-          .catch((e) => {
+          .catch(() => {
+            slowChecksRef.current += 1;
             console.error(
-              '[Diagnostic] - Speed check FAILED. Flagging as slow.',
-              e
+              `[Diagnostic] - CHECK FAILED. Slow count: ${slowChecksRef.current}`
             );
-            isSlowDetectedRef.current = true;
           })
           .finally(() => {
-            // After every check, see if we're done
-            if (checkCountRef.current >= SPEED_CHECK_COUNT_LIMIT) {
+            totalChecksRef.current += 1;
+            console.log(
+              `[Diagnostic] - Promise for check #${currentCheckNumber} resolved. Total checks: ${totalChecksRef.current}`
+            );
+
+            // THE STRICTLY GUARDED TRANSITION LOGIC
+            if (isTransitioningRef.current) return;
+
+            if (slowChecksRef.current >= SLOW_CHECK_THRESHOLD) {
+              isTransitioningRef.current = true; // LOCK THE GATE
               console.log(
-                '[Diagnostic] - Speed check window finished (check limit reached).'
+                '[Diagnostic] - Slow check threshold met. Stopping interval and setting status to speed_slow.'
               );
-              if (intervalId) clearInterval(intervalId); // Stop the interval immediately
-              setStatus(
-                isSlowDetectedRef.current ? 'speed_slow' : 'speed_fast'
+              if (intervalId) clearInterval(intervalId);
+              setStatus('speed_slow');
+            } else if (totalChecksRef.current >= TOTAL_CHECK_LIMIT) {
+              isTransitioningRef.current = true; // LOCK THE GATE
+              console.log(
+                '[Diagnostic] - Total check limit met. Stopping interval and setting status to speed_fast.'
               );
+              if (intervalId) clearInterval(intervalId);
+              setStatus('speed_fast');
             }
           });
       }, SPEED_CHECK_INTERVAL_MS);
@@ -129,17 +143,8 @@ export const useNetworkDiagnostic = ({
       setStatus('finalizing');
     } else if (status === 'finalizing') {
       NetSpeedChecker.checkInternetSpeed(TEST_FILE_URL, TEST_FILE_SIZE_BYTES)
-        .then(() => {
-          console.log('[Diagnostic] Step 4 Result: Final check successful.');
-          setStatus('success');
-        })
-        .catch((error) => {
-          console.error(
-            '[Diagnostic] Step 4 Result: Final check failed (timeout).',
-            error
-          );
-          setStatus('timeout');
-        });
+        .then(() => setStatus('success'))
+        .catch(() => setStatus('timeout'));
     } else if (['success', 'timeout', 'initial_failed'].includes(status)) {
       console.log(
         `[Diagnostic] Process finished with terminal status: ${status}. Calling onComplete.`
