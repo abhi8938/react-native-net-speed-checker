@@ -1,9 +1,12 @@
-// src/index.tsx (Final version with counter-based logic)
+// src/index.tsx (Final version with useRef fix and full logging)
 
 import { useState, useEffect, useRef } from 'react';
 import NetSpeedChecker from './NativeNetSpeedChecker';
 
-// --- (Types and Options are the same) ---
+// --- Configuration ---
+const TEST_FILE_URL = 'https://i.imgur.com/v15aE6I.jpeg';
+const TEST_FILE_SIZE_BYTES = 60 * 1024;
+
 export type DiagnosticStatus =
   | 'idle'
   | 'checking_initial'
@@ -21,7 +24,6 @@ interface DiagnosticOptions {
   onComplete?: (finalStatus: DiagnosticStatus) => void;
   speedThresholdKbps?: number;
 }
-
 // How many times to check speed during the window.
 const SPEED_CHECK_COUNT_LIMIT = 3;
 // How often to check.
