@@ -1,12 +1,9 @@
-// src/index.tsx (Final version with useRef fix and full logging)
+// src/index.tsx (Final version with counter-based logic)
 
 import { useState, useEffect, useRef } from 'react';
 import NetSpeedChecker from './NativeNetSpeedChecker';
 
-// --- Configuration ---
-const TEST_FILE_URL = 'https://i.imgur.com/v15aE6I.jpeg';
-const TEST_FILE_SIZE_BYTES = 60 * 1024;
-
+// --- (Types and Options are the same) ---
 export type DiagnosticStatus =
   | 'idle'
   | 'checking_initial'
@@ -25,6 +22,11 @@ interface DiagnosticOptions {
   speedThresholdKbps?: number;
 }
 
+// How many times to check speed during the window.
+const SPEED_CHECK_COUNT_LIMIT = 3;
+// How often to check.
+const SPEED_CHECK_INTERVAL_MS = 2000;
+
 export const useNetworkDiagnostic = ({
   isRunning,
   onComplete,
@@ -34,7 +36,8 @@ export const useNetworkDiagnostic = ({
   const [currentSpeedKbps, setCurrentSpeedKbps] = useState(0);
 
   // --- REFS FOR PERSISTENCE ---
-  const isSlowDetectedRef = useRef(false); // <-- THE KEY FIX: Use a ref for the flag
+  const isSlowDetectedRef = useRef(false);
+  const checkCountRef = useRef(0); // <-- NEW: Counter for checks
   const onCompleteRef = useRef(onComplete);
   const optionsRef = useRef({ speedThresholdKbps });
 
@@ -44,23 +47,17 @@ export const useNetworkDiagnostic = ({
   }, [onComplete, speedThresholdKbps]);
 
   useEffect(() => {
-    // Refs to hold timers for this specific run of the effect
     let intervalId: NodeJS.Timeout | null = null;
-    let timeoutId: NodeJS.Timeout | null = null;
 
     if (!isRunning) {
-      if (status !== 'idle') {
-        console.log(
-          '[Diagnostic] isRunning set to false. Terminating and resetting to idle.'
-        );
-        setStatus('idle');
-      }
+      if (status !== 'idle') setStatus('idle');
       return;
     }
 
     if (status === 'idle' && isRunning) {
       console.log('[Diagnostic] Process started. Moving to checking_initial.');
-      isSlowDetectedRef.current = false; // <-- Reset the ref at the very start
+      isSlowDetectedRef.current = false;
+      checkCountRef.current = 0; // <-- Reset counter at the start
       setCurrentSpeedKbps(0);
       setStatus('checking_initial');
       return;
@@ -79,43 +76,52 @@ export const useNetworkDiagnostic = ({
         });
     } else if (status === 'initial_passed') {
       console.log(
-        '[Diagnostic] Step 3: Starting 7-second speed check window. Setting status to checking_speed.'
+        '[Diagnostic] Step 3: Starting speed check window. Setting status to checking_speed.'
       );
       setStatus('checking_speed');
     } else if (status === 'checking_speed') {
       console.log(
-        '[Diagnostic] Now in checking_speed state. Setting up timers.'
+        '[Diagnostic] Now in checking_speed state. Setting up interval.'
       );
+
       intervalId = setInterval(() => {
+        // Increment the counter first
+        checkCountRef.current += 1;
+        console.log(
+          `[Diagnostic] - Running speed check #${checkCountRef.current} of ${SPEED_CHECK_COUNT_LIMIT}...`
+        );
+
         NetSpeedChecker.checkInternetSpeed(TEST_FILE_URL, TEST_FILE_SIZE_BYTES)
           .then((speed) => {
             const roundedSpeed = Math.round(speed);
-            // Log with current speed
-            console.log(
-              `[Diagnostic] - Speed check result (during 7s window): ${roundedSpeed} kbps.`
-            );
             setCurrentSpeedKbps(roundedSpeed);
             if (speed <= optionsRef.current.speedThresholdKbps) {
               console.log(
-                `[Diagnostic] - SLOW SPEED DETECTED (${roundedSpeed} kbps <= ${optionsRef.current.speedThresholdKbps} kbps). Flagging as slow.`
+                `[Diagnostic] - SLOW SPEED DETECTED (${roundedSpeed} kbps). Flagging as slow.`
               );
-              isSlowDetectedRef.current = true; // <-- Mutate the ref's .current property
+              isSlowDetectedRef.current = true;
             }
           })
           .catch((e) => {
             console.error(
-              '[Diagnostic] - Speed check FAILED during 7s window. Flagging as slow.',
+              '[Diagnostic] - Speed check FAILED. Flagging as slow.',
               e
             );
-            isSlowDetectedRef.current = true; // <-- Mutate the ref's .current property
+            isSlowDetectedRef.current = true;
+          })
+          .finally(() => {
+            // After every check, see if we're done
+            if (checkCountRef.current >= SPEED_CHECK_COUNT_LIMIT) {
+              console.log(
+                '[Diagnostic] - Speed check window finished (check limit reached).'
+              );
+              if (intervalId) clearInterval(intervalId); // Stop the interval immediately
+              setStatus(
+                isSlowDetectedRef.current ? 'speed_slow' : 'speed_fast'
+              );
+            }
           });
-      }, 2000);
-
-      timeoutId = setTimeout(() => {
-        console.log('[Diagnostic] - 7-second window finished.');
-        // Read the final value from the ref's .current property
-        setStatus(isSlowDetectedRef.current ? 'speed_slow' : 'speed_fast');
-      }, 7000);
+      }, SPEED_CHECK_INTERVAL_MS);
     } else if (status === 'speed_slow' || status === 'speed_fast') {
       console.log('[Diagnostic] Step 4: Executing final confirmation check.');
       setStatus('finalizing');
@@ -139,20 +145,8 @@ export const useNetworkDiagnostic = ({
       onCompleteRef.current?.(status);
     }
 
-    // The cleanup function for THIS RUN of the useEffect.
     return () => {
-      if (intervalId) {
-        console.log(
-          `[Diagnostic] Cleaning up interval from a previous render (status was ${status}).`
-        );
-        clearInterval(intervalId);
-      }
-      if (timeoutId) {
-        console.log(
-          `[Diagnostic] Cleaning up timeout from a previous render (status was ${status}).`
-        );
-        clearInterval(timeoutId);
-      }
+      if (intervalId) clearInterval(intervalId);
     };
   }, [isRunning, status]);
 
